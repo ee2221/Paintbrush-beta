@@ -523,7 +523,7 @@ const EditModeOverlay = () => {
 // Camera controller component
 const CameraController = () => {
   const { camera } = useThree();
-  const { cameraPerspective, cameraZoom } = useSceneStore();
+  const { cameraPerspective, cameraZoom, paintMode } = useSceneStore();
   const controlsRef = useRef();
 
   useEffect(() => {
@@ -624,7 +624,7 @@ const CameraController = () => {
       makeDefault
       enablePan={true}
       enableZoom={true}
-      enableRotate={true}
+      enableRotate={!paintMode} // Disable rotation in paint mode
     />
   );
 };
@@ -716,6 +716,7 @@ const Scene: React.FC = () => {
     setSelectedObject, 
     transformMode, 
     editMode, 
+    paintMode,
     draggedVertex, 
     draggedEdge,
     selectedElements, 
@@ -808,7 +809,7 @@ const Scene: React.FC = () => {
               object={object}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!placementMode && canSelectObject(object)) {
+                if (!placementMode && !paintMode && canSelectObject(object)) {
                   setSelectedObject(object);
                 }
               }}
@@ -816,7 +817,7 @@ const Scene: React.FC = () => {
           )
         ))}
 
-        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && (
+        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && !paintMode && (
           <TransformControls
             object={selectedObject}
             mode={transformMode}

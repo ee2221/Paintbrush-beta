@@ -1,9 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { useThree } from '@react-three/fiber';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
 interface PaintStroke {
-  points: THREE.Vector2[];
+  points: THREE.Vector3[];
+  uvPoints: THREE.Vector2[];
   color: string;
   size: number;
   opacity: number;
@@ -12,10 +14,11 @@ interface PaintStroke {
 }
 
 const PaintCanvas: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { camera, raycaster, scene } = useThree();
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<PaintStroke | null>(null);
   const [paintStrokes, setPaintStrokes] = useState<PaintStroke[]>([]);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   
   const { 
     paintMode, 
@@ -29,42 +32,19 @@ const PaintCanvas: React.FC = () => {
   const objectLocked = selectedObj ? isObjectLocked(selectedObj.id) : false;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !paintMode) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas size to match viewport
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-
-    return () => {
-      window.removeEventListener('resize', resizeCanvas);
-    };
-  }, [paintMode]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !paintMode || objectLocked || !selectedObject) return;
+    if (!paintMode || objectLocked || !selectedObject) return;
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return; // Only left click
       
-      setIsDrawing(true);
-      const rect = canvas.getBoundingClientRect();
-      const point = new THREE.Vector2(
-        e.clientX - rect.left,
-        e.clientY - rect.top
-      );
+      const intersection = getIntersectionPoint(e);
+      if (!intersection) return;
 
+      setIsDrawing(true);
+      
       const newStroke: PaintStroke = {
-        points: [point],
+        points: [intersection.point],
+        uvPoints: intersection.uv ? [intersection.uv] : [],
         color: paintSettings.primaryColor,
         size: paintSettings.brushSize,
         opacity: paintSettings.opacity,
@@ -73,75 +53,83 @@ const PaintCanvas: React.FC = () => {
       };
 
       setCurrentStroke(newStroke);
+      applyPaintToObject(newStroke);
     };
 
     const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+
       if (!isDrawing || !currentStroke) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const point = new THREE.Vector2(
-        e.clientX - rect.left,
-        e.clientY - rect.top
-      );
+      const intersection = getIntersectionPoint(e);
+      if (!intersection) return;
 
-      setCurrentStroke(prev => prev ? {
-        ...prev,
-        points: [...prev.points, point]
-      } : null);
+      const updatedStroke = {
+        ...currentStroke,
+        points: [...currentStroke.points, intersection.point],
+        uvPoints: intersection.uv ? [...currentStroke.uvPoints, intersection.uv] : currentStroke.uvPoints
+      };
+
+      setCurrentStroke(updatedStroke);
+      applyPaintToObject(updatedStroke);
     };
 
     const handleMouseUp = () => {
       if (currentStroke && currentStroke.points.length > 0) {
         setPaintStrokes(prev => [...prev, currentStroke]);
-        applyPaintToObject(currentStroke);
       }
       setIsDrawing(false);
       setCurrentStroke(null);
     };
 
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseUp);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
 
     return () => {
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseUp);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [paintMode, isDrawing, currentStroke, paintSettings, objectLocked, selectedObject]);
+  }, [paintMode, isDrawing, currentStroke, paintSettings, objectLocked, selectedObject, camera, raycaster]);
+
+  const getIntersectionPoint = (e: MouseEvent) => {
+    if (!selectedObject || !(selectedObject instanceof THREE.Mesh)) return null;
+
+    // Convert mouse position to normalized device coordinates
+    const rect = document.querySelector('canvas')?.getBoundingClientRect();
+    if (!rect) return null;
+
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObject(selectedObject);
+
+    if (intersects.length > 0) {
+      return {
+        point: intersects[0].point,
+        uv: intersects[0].uv,
+        face: intersects[0].face
+      };
+    }
+
+    return null;
+  };
 
   const applyPaintToObject = (stroke: PaintStroke) => {
     if (!selectedObject || !(selectedObject instanceof THREE.Mesh)) return;
+    if (stroke.uvPoints.length === 0) return;
 
-    // Create or update paint texture
     const material = selectedObject.material as THREE.MeshStandardMaterial;
     
-    // If no paint texture exists, create one
+    // Create or get paint texture
     if (!material.userData.paintTexture) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, 512, 512);
-      }
-      
-      const texture = new THREE.CanvasTexture(canvas);
-      material.userData.paintTexture = texture;
-      material.userData.paintCanvas = canvas;
-      
-      // Blend with existing color
-      const originalColor = material.color.clone();
-      material.map = texture;
-      material.color.setRGB(1, 1, 1); // Set to white to show texture colors
-      material.userData.originalColor = originalColor;
-      material.needsUpdate = true;
+      createPaintTexture(material);
     }
 
-    // Apply stroke to paint canvas
     const paintCanvas = material.userData.paintCanvas as HTMLCanvasElement;
     const paintCtx = paintCanvas.getContext('2d');
     if (!paintCtx) return;
@@ -151,26 +139,31 @@ const PaintCanvas: React.FC = () => {
     paintCtx.globalCompositeOperation = getCompositeOperation(stroke.blendMode);
     paintCtx.strokeStyle = stroke.color;
     paintCtx.fillStyle = stroke.color;
-    paintCtx.lineWidth = stroke.size;
     paintCtx.lineCap = 'round';
     paintCtx.lineJoin = 'round';
+
+    // Convert UV coordinates to canvas coordinates
+    const canvasPoints = stroke.uvPoints.map(uv => ({
+      x: uv.x * paintCanvas.width,
+      y: (1 - uv.y) * paintCanvas.height // Flip Y coordinate
+    }));
 
     // Draw based on brush type
     switch (stroke.brushType) {
       case 'round':
-        drawRoundBrush(paintCtx, stroke);
+        drawRoundBrush(paintCtx, canvasPoints, stroke.size);
         break;
       case 'square':
-        drawSquareBrush(paintCtx, stroke);
+        drawSquareBrush(paintCtx, canvasPoints, stroke.size);
         break;
       case 'airbrush':
-        drawAirbrush(paintCtx, stroke);
+        drawAirbrush(paintCtx, canvasPoints, stroke);
         break;
       case 'stipple':
-        drawStipple(paintCtx, stroke);
+        drawStipple(paintCtx, canvasPoints, stroke);
         break;
       case 'gradient':
-        drawGradient(paintCtx, stroke);
+        drawGradient(paintCtx, canvasPoints, stroke);
         break;
     }
 
@@ -179,79 +172,131 @@ const PaintCanvas: React.FC = () => {
     texture.needsUpdate = true;
   };
 
-  const drawRoundBrush = (ctx: CanvasRenderingContext2D, stroke: PaintStroke) => {
-    if (stroke.points.length < 2) {
+  const createPaintTexture = (material: THREE.MeshStandardMaterial) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      // Start with a transparent canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // If the material has an existing texture, draw it as the base
+      if (material.map) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          texture.needsUpdate = true;
+        };
+        img.src = (material.map as any).image?.src || '';
+      }
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.flipY = false; // Important for UV mapping
+    
+    // Store references
+    material.userData.paintTexture = texture;
+    material.userData.paintCanvas = canvas;
+    material.userData.originalMap = material.map;
+    material.userData.originalColor = material.color.clone();
+    
+    // Apply the paint texture
+    material.map = texture;
+    material.needsUpdate = true;
+  };
+
+  const drawRoundBrush = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], size: number) => {
+    const brushSize = (size / 100) * Math.min(ctx.canvas.width, ctx.canvas.height) * 0.1;
+    
+    if (points.length === 1) {
       // Single point
       ctx.beginPath();
-      ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.size / 2, 0, Math.PI * 2);
+      ctx.arc(points[0].x, points[0].y, brushSize / 2, 0, Math.PI * 2);
       ctx.fill();
-    } else {
+    } else if (points.length > 1) {
       // Connected line
+      ctx.lineWidth = brushSize;
       ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length; i++) {
-        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
       }
       ctx.stroke();
     }
   };
 
-  const drawSquareBrush = (ctx: CanvasRenderingContext2D, stroke: PaintStroke) => {
-    stroke.points.forEach(point => {
-      const halfSize = stroke.size / 2;
+  const drawSquareBrush = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], size: number) => {
+    const brushSize = (size / 100) * Math.min(ctx.canvas.width, ctx.canvas.height) * 0.1;
+    
+    points.forEach(point => {
+      const halfSize = brushSize / 2;
       ctx.fillRect(
         point.x - halfSize,
         point.y - halfSize,
-        stroke.size,
-        stroke.size
+        brushSize,
+        brushSize
       );
     });
   };
 
-  const drawAirbrush = (ctx: CanvasRenderingContext2D, stroke: PaintStroke) => {
-    stroke.points.forEach(point => {
+  const drawAirbrush = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], stroke: PaintStroke) => {
+    const brushSize = (stroke.size / 100) * Math.min(ctx.canvas.width, ctx.canvas.height) * 0.1;
+    
+    points.forEach(point => {
       const gradient = ctx.createRadialGradient(
         point.x, point.y, 0,
-        point.x, point.y, stroke.size / 2
+        point.x, point.y, brushSize / 2
       );
       
       const centerAlpha = stroke.opacity * paintSettings.hardness;
-      gradient.addColorStop(0, `${stroke.color}${Math.round(centerAlpha * 255).toString(16).padStart(2, '0')}`);
-      gradient.addColorStop(1, `${stroke.color}00`);
+      const color = stroke.color;
+      
+      // Convert hex to rgba
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${centerAlpha})`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
       
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, stroke.size / 2, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, brushSize / 2, 0, Math.PI * 2);
       ctx.fill();
     });
   };
 
-  const drawStipple = (ctx: CanvasRenderingContext2D, stroke: PaintStroke) => {
-    stroke.points.forEach(point => {
-      const density = paintSettings.textureStrength * 50;
+  const drawStipple = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], stroke: PaintStroke) => {
+    const brushSize = (stroke.size / 100) * Math.min(ctx.canvas.width, ctx.canvas.height) * 0.1;
+    
+    points.forEach(point => {
+      const density = paintSettings.textureStrength * 20;
       for (let i = 0; i < density; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const distance = Math.random() * stroke.size / 2;
+        const distance = Math.random() * brushSize / 2;
         const x = point.x + Math.cos(angle) * distance;
         const y = point.y + Math.sin(angle) * distance;
-        const size = Math.random() * 3 + 1;
+        const dotSize = Math.random() * 3 + 1;
         
         ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.arc(x, y, dotSize, 0, Math.PI * 2);
         ctx.fill();
       }
     });
   };
 
-  const drawGradient = (ctx: CanvasRenderingContext2D, stroke: PaintStroke) => {
-    if (stroke.points.length < 2) return;
+  const drawGradient = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], stroke: PaintStroke) => {
+    if (points.length < 2) return;
 
-    const startPoint = stroke.points[0];
-    const endPoint = stroke.points[stroke.points.length - 1];
+    const brushSize = (stroke.size / 100) * Math.min(ctx.canvas.width, ctx.canvas.height) * 0.1;
+    const startPoint = points[0];
+    const endPoint = points[points.length - 1];
     
     // Calculate gradient direction based on angle setting
     const angle = (paintSettings.gradientAngle * Math.PI) / 180;
-    const distance = stroke.size;
+    const distance = brushSize;
     
     const gradientStart = {
       x: startPoint.x - Math.cos(angle) * distance / 2,
@@ -272,11 +317,11 @@ const PaintCanvas: React.FC = () => {
     gradient.addColorStop(1, paintSettings.secondaryColor);
     
     ctx.strokeStyle = gradient;
-    ctx.lineWidth = stroke.size;
+    ctx.lineWidth = brushSize;
     ctx.beginPath();
     ctx.moveTo(startPoint.x, startPoint.y);
-    for (let i = 1; i < stroke.points.length; i++) {
-      ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
     }
     ctx.stroke();
   };
@@ -294,57 +339,22 @@ const PaintCanvas: React.FC = () => {
     }
   };
 
-  // Render current stroke preview
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !currentStroke) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw current stroke
-    ctx.globalAlpha = currentStroke.opacity;
-    ctx.strokeStyle = currentStroke.color;
-    ctx.fillStyle = currentStroke.color;
-    ctx.lineWidth = currentStroke.size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    if (currentStroke.points.length > 0) {
-      switch (currentStroke.brushType) {
-        case 'round':
-          if (currentStroke.points.length === 1) {
-            ctx.beginPath();
-            ctx.arc(currentStroke.points[0].x, currentStroke.points[0].y, currentStroke.size / 2, 0, Math.PI * 2);
-            ctx.fill();
-          } else {
-            ctx.beginPath();
-            ctx.moveTo(currentStroke.points[0].x, currentStroke.points[0].y);
-            for (let i = 1; i < currentStroke.points.length; i++) {
-              ctx.lineTo(currentStroke.points[i].x, currentStroke.points[i].y);
-            }
-            ctx.stroke();
-          }
-          break;
-        // Add other brush type previews as needed
-      }
-    }
-  }, [currentStroke]);
-
-  if (!paintMode) return null;
+  // Render brush cursor
+  if (!paintMode || objectLocked || !selectedObject) return null;
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={`fixed inset-0 pointer-events-auto z-20 ${
-        objectLocked || !selectedObject ? 'cursor-not-allowed' : 'cursor-crosshair'
-      }`}
+    <div
+      className="fixed pointer-events-none z-30"
       style={{
-        pointerEvents: paintMode ? 'auto' : 'none',
-        opacity: objectLocked || !selectedObject ? 0.3 : 1
+        left: mousePosition.x - paintSettings.brushSize / 2,
+        top: mousePosition.y - paintSettings.brushSize / 2,
+        width: paintSettings.brushSize,
+        height: paintSettings.brushSize,
+        borderRadius: paintSettings.brushType === 'round' ? '50%' : '0%',
+        border: '2px solid rgba(255, 255, 255, 0.8)',
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        transform: 'translate(-50%, -50%)',
+        pointerEvents: 'none'
       }}
     />
   );

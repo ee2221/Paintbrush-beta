@@ -319,17 +319,19 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       if (state.selectedObject instanceof THREE.Mesh) {
         const material = state.selectedObject.material as THREE.MeshStandardMaterial;
         
-        // Remove paint texture and restore original color
+        // Remove paint texture and restore original
         if (material.userData.paintTexture) {
           material.userData.paintTexture.dispose();
           delete material.userData.paintTexture;
           delete material.userData.paintCanvas;
           
-          material.map = null;
+          // Restore original map and color
+          material.map = material.userData.originalMap || null;
           if (material.userData.originalColor) {
             material.color.copy(material.userData.originalColor);
             delete material.userData.originalColor;
           }
+          delete material.userData.originalMap;
           material.needsUpdate = true;
         }
       }
