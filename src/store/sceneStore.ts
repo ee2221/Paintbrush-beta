@@ -4,6 +4,20 @@ import * as THREE from 'three';
 type EditMode = 'vertex' | 'edge' | null;
 type CameraPerspective = 'perspective' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
+interface PaintSettings {
+  brushType: 'round' | 'square' | 'airbrush' | 'stipple' | 'gradient';
+  brushSize: number;
+  opacity: number;
+  flow: number;
+  hardness: number;
+  primaryColor: string;
+  secondaryColor: string;
+  blendMode: 'normal' | 'multiply' | 'screen' | 'overlay' | 'soft-light' | 'hard-light' | 'color-dodge' | 'color-burn';
+  textureStrength: number;
+  gradientAngle: number;
+  symmetry: boolean;
+}
+
 interface Group {
   id: string;
   name: string;
@@ -38,6 +52,8 @@ interface SceneState {
   selectedObject: THREE.Object3D | null;
   transformMode: 'translate' | 'rotate' | 'scale' | null;
   editMode: EditMode;
+  paintMode: boolean;
+  paintSettings: PaintSettings;
   cameraPerspective: CameraPerspective;
   cameraZoom: number;
   selectedElements: {
@@ -74,6 +90,9 @@ interface SceneState {
   setSelectedObject: (object: THREE.Object3D | null) => void;
   setTransformMode: (mode: 'translate' | 'rotate' | 'scale' | null) => void;
   setEditMode: (mode: EditMode) => void;
+  setPaintMode: (enabled: boolean) => void;
+  updatePaintSettings: (settings: Partial<PaintSettings>) => void;
+  clearPaintLayer: () => void;
   setCameraPerspective: (perspective: CameraPerspective) => void;
   toggleVisibility: (id: string) => void;
   toggleLock: (id: string) => void;
@@ -141,6 +160,20 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   selectedObject: null,
   transformMode: null,
   editMode: null,
+  paintMode: false,
+  paintSettings: {
+    brushType: 'round',
+    brushSize: 20,
+    opacity: 1,
+    flow: 1,
+    hardness: 0.5,
+    primaryColor: '#ff0000',
+    secondaryColor: '#0000ff',
+    blendMode: 'normal',
+    textureStrength: 0.5,
+    gradientAngle: 0,
+    symmetry: false
+  },
   cameraPerspective: 'perspective',
   cameraZoom: 1,
   selectedElements: {
@@ -248,11 +281,12 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       return { 
         selectedObject: object,
         editMode: newEditMode,
-        transformMode: null // Clear transform mode when selecting object
+        transformMode: null, // Clear transform mode when selecting object
+        paintMode: false // Exit paint mode when selecting new object
       };
     }),
 
-  setTransformMode: (mode) => set({ transformMode: mode }),
+  setTransformMode: (mode) => set({ transformMode: mode, paintMode: false }),
   
   setEditMode: (mode) => 
     set((state) => {
@@ -265,7 +299,41 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           return state; // Don't change the edit mode
         }
       }
-      return { editMode: mode };
+      return { editMode: mode, paintMode: false };
+    }),
+
+  setPaintMode: (enabled) => 
+    set((state) => ({
+      paintMode: enabled,
+      transformMode: enabled ? null : state.transformMode,
+      editMode: enabled ? null : state.editMode
+    })),
+
+  updatePaintSettings: (settings) =>
+    set((state) => ({
+      paintSettings: { ...state.paintSettings, ...settings }
+    })),
+
+  clearPaintLayer: () =>
+    set((state) => {
+      if (state.selectedObject instanceof THREE.Mesh) {
+        const material = state.selectedObject.material as THREE.MeshStandardMaterial;
+        
+        // Remove paint texture and restore original color
+        if (material.userData.paintTexture) {
+          material.userData.paintTexture.dispose();
+          delete material.userData.paintTexture;
+          delete material.userData.paintCanvas;
+          
+          material.map = null;
+          if (material.userData.originalColor) {
+            material.color.copy(material.userData.originalColor);
+            delete material.userData.originalColor;
+          }
+          material.needsUpdate = true;
+        }
+      }
+      return state;
     }),
 
   setCameraPerspective: (perspective) => set({ cameraPerspective: perspective }),
@@ -973,7 +1041,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       pendingObject: objectDef,
       selectedObject: null,
       transformMode: null,
-      editMode: null
+      editMode: null,
+      paintMode: false
     }),
 
   placeObjectAt: (position) =>

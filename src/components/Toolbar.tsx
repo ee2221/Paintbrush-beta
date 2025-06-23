@@ -5,6 +5,7 @@ import {
   Maximize, 
   Projector as Vector, 
   Link,
+  Paintbrush,
   Cuboid, 
   Cherry, 
   Cylinder, 
@@ -48,6 +49,8 @@ const Toolbar: React.FC = () => {
     transformMode, 
     setEditMode,
     editMode,
+    setPaintMode,
+    paintMode,
     selectedObject,
     placementMode,
     startObjectPlacement,
@@ -425,6 +428,12 @@ const Toolbar: React.FC = () => {
     }
   ] as const;
 
+  const paintTool = {
+    icon: Paintbrush,
+    title: 'Paint Mode',
+    type: 'paint'
+  };
+
   const toggleCategory = (categoryName: string) => {
     setExpandedCategories(prev => 
       prev.includes(categoryName)
@@ -525,13 +534,14 @@ const Toolbar: React.FC = () => {
                 if (!placementMode) {
                   setTransformMode(mode);
                   setEditMode(null);
+                  setPaintMode(false);
                 }
               }}
               disabled={placementMode}
               className={`p-2 rounded-lg transition-colors w-full flex items-center gap-2 ${
                 placementMode
                   ? 'text-white/30 cursor-not-allowed'
-                  : transformMode === mode && !editMode 
+                  : transformMode === mode && !editMode && !paintMode
                     ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                     : 'text-white/90 hover:bg-white/5'
               }`}
@@ -544,7 +554,7 @@ const Toolbar: React.FC = () => {
         </div>
 
         {/* Edit Tools */}
-        <div className="space-y-1">
+        <div className="space-y-1 border-b border-white/10 pb-3">
           <div className="px-2 py-1">
             <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Edit Mode</h3>
           </div>
@@ -555,13 +565,14 @@ const Toolbar: React.FC = () => {
                 if (!disabled && !placementMode) {
                   setEditMode(mode);
                   setTransformMode(null);
+                  setPaintMode(false);
                 }
               }}
               disabled={disabled || placementMode}
               className={`p-2 rounded-lg transition-colors w-full flex items-center gap-2 ${
                 disabled || placementMode
                   ? 'text-white/30 cursor-not-allowed'
-                  : editMode === mode 
+                  : editMode === mode && !paintMode
                     ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                     : 'text-white/90 hover:bg-white/5'
               }`}
@@ -577,6 +588,34 @@ const Toolbar: React.FC = () => {
               <span className="text-sm font-medium">{title}</span>
             </button>
           ))}
+        </div>
+
+        {/* Paint Tool */}
+        <div className="space-y-1">
+          <div className="px-2 py-1">
+            <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Paint</h3>
+          </div>
+          <button
+            onClick={() => {
+              if (!placementMode) {
+                setPaintMode(!paintMode);
+                setTransformMode(null);
+                setEditMode(null);
+              }
+            }}
+            disabled={placementMode}
+            className={`p-2 rounded-lg transition-colors w-full flex items-center gap-2 ${
+              placementMode
+                ? 'text-white/30 cursor-not-allowed'
+                : paintMode
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                  : 'text-white/90 hover:bg-white/5'
+            }`}
+            title={placementMode ? 'Finish current placement first' : paintTool.title}
+          >
+            <paintTool.icon className="w-5 h-5" />
+            <span className="text-sm font-medium">{paintTool.title}</span>
+          </button>
         </div>
       </div>
     </div>
