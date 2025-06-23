@@ -1,21 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Paintbrush, 
-  Palette, 
-  Droplets, 
-  Brush, 
-  Spray, 
-  Circle, 
-  Square, 
-  Triangle,
-  Minus,
-  Plus,
-  RotateCcw,
-  Eye,
-  EyeOff,
-  Settings,
-  X
-} from 'lucide-react';
+import { Paintbrush, Palette, Droplets, Brush, SprayCan as Spray, Circle, Square, Triangle, Minus, Plus, RotateCcw, Eye, EyeOff, Settings, X } from 'lucide-react';
 import { useSceneStore } from '../store/sceneStore';
 
 const PaintControls: React.FC = () => {
