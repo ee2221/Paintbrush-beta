@@ -7,7 +7,6 @@ import ObjectProperties from './components/ObjectProperties';
 import EditControls from './components/EditControls';
 import CameraPerspectivePanel from './components/CameraPerspectivePanel';
 import PaintControls from './components/PaintControls';
-import PaintCanvas from './components/PaintCanvas';
 
 function App() {
   return (
@@ -20,7 +19,6 @@ function App() {
       <EditControls />
       <CameraPerspectivePanel />
       <PaintControls />
-      <PaintCanvas />
     </div>
   );
 }

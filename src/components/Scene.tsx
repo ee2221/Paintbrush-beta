@@ -3,6 +3,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid } from '@react-three/drei';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
+import PaintCanvas from './PaintCanvas';
 
 const VertexCoordinates = ({ position, onPositionChange }) => {
   const [localPosition, setLocalPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -827,6 +828,7 @@ const Scene: React.FC = () => {
         <EditModeOverlay />
         <PlacementHelper />
         <CameraController />
+        <PaintCanvas />
       </Canvas>
       {editMode === 'vertex' && selectedPosition && (
         <VertexCoordinates 
